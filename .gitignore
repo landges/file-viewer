@@ -1,0 +1,12 @@
+.env
+.idea/
+.pytest_cache/
+__pycache__/
+*.py[cod]
+*.log
+node_modules/
+.pnpm-store/
+frontend/dist/
+.coverage
+htmlcov/
+fixtures/generated/

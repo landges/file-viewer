@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Демо интеграции File Viewer</title>
+  <style>
+    body{margin:0;background:#f3f5f7;color:#252933;font:15px system-ui,sans-serif}.wrap{width:min(920px,calc(100% - 32px));margin:50px auto}h1{letter-spacing:-.04em;font-size:38px}p{color:#68707d}.files{margin-top:28px;border-radius:14px;overflow:hidden;background:white;box-shadow:0 12px 40px #24304414}.row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:10px;align-items:center;padding:14px 18px;border-bottom:1px solid #e9ebef}.row:last-child{border:0}.row span{overflow:hidden;text-overflow:ellipsis}.row a{padding:8px 12px;border-radius:8px;color:#176440;text-decoration:none;background:#e6f8ee;font-weight:700}.row a.download{color:#5f6670;background:#edf0f3}@media(max-width:560px){.row{grid-template-columns:1fr auto}.row .download{display:none}}
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <h1>Пример внутреннего приложения</h1>
+    <p>Каждый файл имеет прежнюю ссылку скачивания и новую ссылку просмотра.</p>
+    <section class="files" id="files"></section>
+  </main>
+  <script>
+    const names = ["document.docx","document.doc","table.xlsx","table.xls","presentation.pptx","presentation.ppt","document.pdf","image.png","archive.zip","archive.custom-package","protected.7z","message.eml","data.csv","readme.txt","broken.zip"];
+    const viewerSourceBase = "http://source.localhost:8081/files/";
+    const browserSourceBase = "http://localhost:8081/files/";
+    const viewerBase = new URLSearchParams(location.search).has("dev")
+      ? "http://localhost:5173/view"
+      : "http://localhost:8080/view";
+    const root = document.querySelector("#files");
+    for (const name of names) {
+      const source = viewerSourceBase + encodeURIComponent(name);
+      const browserSource = browserSourceBase + encodeURIComponent(name);
+      const viewer = new URL(viewerBase);
+      viewer.searchParams.set("url", source);
+      viewer.searchParams.set("name", name);
+      const row = document.createElement("div"); row.className="row";
+      const label = document.createElement("span"); label.textContent=name;
+      const view = document.createElement("a"); view.textContent="Посмотреть"; view.target="_blank"; view.rel="noopener"; view.href=viewer;
+      const download = document.createElement("a"); download.textContent="Скачать"; download.className="download"; download.href=browserSource;
+      row.append(label,view,download); root.append(row);
+    }
+  </script>
+</body>
+</html>

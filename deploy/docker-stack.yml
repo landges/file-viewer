@@ -1,0 +1,54 @@
+services:
+  viewer:
+    image: ${FILE_VIEWER_IMAGE:-registry.internal/file-viewer:latest}
+    environment:
+      ENVIRONMENT: production
+      SOURCE_ALLOWED_HOSTS: ${SOURCE_ALLOWED_HOSTS}
+      SOURCE_ALLOWED_PORTS: ${SOURCE_ALLOWED_PORTS:-80}
+      SOURCE_ALLOWED_SCHEMES: ${SOURCE_ALLOWED_SCHEMES:-http}
+      CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-86400}
+      FAILED_TTL_SECONDS: ${FAILED_TTL_SECONDS:-3600}
+      MAX_CONCURRENT_CONVERSIONS: ${MAX_CONCURRENT_CONVERSIONS:-2}
+      MAX_SOURCE_BYTES: ${MAX_SOURCE_BYTES:-536870912}
+    volumes:
+      - viewer-cache:/var/cache/file-viewer
+    networks:
+      - proxy
+    deploy:
+      mode: replicated
+      replicas: 3
+      placement:
+        max_replicas_per_node: 1
+      update_config:
+        parallelism: 1
+        order: start-first
+        failure_action: rollback
+      rollback_config:
+        parallelism: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 3G
+        reservations:
+          cpus: "0.25"
+          memory: 256M
+      labels:
+        - traefik.enable=true
+        - traefik.http.routers.file-viewer.rule=Host(`${VIEWER_HOST}`)
+        - traefik.http.routers.file-viewer.entrypoints=web
+        - traefik.http.services.file-viewer.loadbalancer.server.port=8080
+        - traefik.http.services.file-viewer.loadbalancer.sticky.cookie=true
+        - traefik.http.services.file-viewer.loadbalancer.sticky.cookie.name=fv_affinity
+        - traefik.http.services.file-viewer.loadbalancer.sticky.cookie.httponly=true
+        - traefik.http.services.file-viewer.loadbalancer.sticky.cookie.secure=false
+
+volumes:
+  viewer-cache:
+    driver: local
+
+networks:
+  proxy:
+    external: true
