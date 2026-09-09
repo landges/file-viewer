@@ -42,6 +42,11 @@ button, a { -webkit-tap-highlight-color: transparent; }
   background-color: #15171c; background-image: linear-gradient(45deg,#1b1e24 25%,transparent 25%),linear-gradient(-45deg,#1b1e24 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#1b1e24 75%),linear-gradient(-45deg,transparent 75%,#1b1e24 75%); background-size: 24px 24px; background-position: 0 0,0 12px,12px -12px,-12px 0;
 }
 .image-canvas img { max-width: 100%; max-height: calc(100vh - 120px); object-fit: contain; box-shadow: 0 18px 50px rgba(0,0,0,.3); }
+.audio-view { min-height: calc(100vh - 64px); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; padding: 32px; background: radial-gradient(circle at 50% 35%, #24372f 0, #15181d 45%, #111318 75%); }
+.audio-view h2 { max-width: min(680px, 100%); margin: 0; overflow: hidden; text-align: center; text-overflow: ellipsis; white-space: nowrap; font-size: 18px; }
+.audio-view audio { width: min(680px, 100%); }
+.audio-glyph { display: grid; place-items: center; width: 92px; height: 92px; border: 1px solid #46745b; border-radius: 50%; color: #8fffc1; background: #1d2c25; box-shadow: 0 18px 55px rgba(0,0,0,.3); font-size: 42px; }
+.html-frame { display: block; width: 100%; height: calc(100vh - 64px); border: 0; background: white; }
 .center-panel { min-height: calc(100vh - 64px); display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px; text-align: center; }
 .center-panel h2 { margin: 20px 0 8px; font-size: 19px; }
 .center-panel p { max-width: 600px; color: #a7acb8; }
@@ -63,13 +68,13 @@ button, a { -webkit-tap-highlight-color: transparent; }
 
 .text-view, .email-text { min-height: calc(100vh - 64px); margin: 0; padding: 30px max(30px, calc((100vw - 1100px) / 2)); color: #d8dce5; background: #15171c; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55; tab-size: 4; }
 .sheet-view { height: calc(100vh - 64px); display: grid; grid-template-rows: auto minmax(0,1fr) auto; background: #f7f8fa; color: #252932; }
-.notice { padding: 8px 16px; color: #563d05; background: #fff2c7; border-bottom: 1px solid #e2cf8d; font-size: 13px; }
-.sheet-scroll { overflow: auto; }
+.notice { grid-row: 1; padding: 8px 16px; color: #563d05; background: #fff2c7; border-bottom: 1px solid #e2cf8d; font-size: 13px; }
+.sheet-scroll { grid-row: 2; overflow: auto; }
 .sheet-view table { border-collapse: separate; border-spacing: 0; min-width: 100%; font: 13px/1.35 ui-monospace, SFMono-Regular, Consolas, monospace; }
 .sheet-view td, .sheet-view th { min-width: 100px; max-width: 420px; height: 29px; padding: 5px 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-right: 1px solid #dfe2e8; border-bottom: 1px solid #dfe2e8; background: white; }
 .sheet-view .row-number { position: sticky; left: 0; min-width: 48px; width: 48px; color: #7b828e; background: #eef0f4; z-index: 1; }
-.sheet-tabs { display: flex; gap: 2px; padding: 7px 12px; overflow-x: auto; border-top: 1px solid #d6dae1; background: #e9ecf1; }
-.sheet-tabs button { border: 0; border-radius: 6px; padding: 7px 14px; color: #606774; background: transparent; cursor: pointer; white-space: nowrap; }
+.sheet-tabs { grid-row: 3; display: flex; align-items: center; gap: 2px; min-height: 34px; padding: 4px 8px; overflow-x: auto; border-top: 1px solid #d6dae1; background: #e9ecf1; }
+.sheet-tabs button { flex: 0 0 auto; max-width: 180px; height: 26px; overflow: hidden; border: 0; border-radius: 4px; padding: 0 10px; color: #606774; background: transparent; cursor: pointer; font-size: 12px; line-height: 26px; text-overflow: ellipsis; white-space: nowrap; }
 .sheet-tabs button.active { color: #17643d; background: white; box-shadow: 0 1px 4px rgba(0,0,0,.1); }
 
 .archive-view { max-width: 1120px; margin: 0 auto; padding: 28px; }
@@ -107,4 +112,3 @@ button, a { -webkit-tap-highlight-color: transparent; }
   .archive-row { grid-template-columns: 24px minmax(0,1fr) 70px; padding: 11px 10px; }
   .email-view { width: calc(100% - 20px); margin: 10px auto; }
 }
-

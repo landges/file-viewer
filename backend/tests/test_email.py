@@ -39,3 +39,39 @@ def test_email_html_removes_scripts_events_and_remote_images() -> None:
     assert "http://tracker" not in cleaned
     assert "<script" not in cleaned
 
+
+def test_outlook_msg_uses_shared_email_and_attachment_flow(tmp_path: Path, monkeypatch) -> None:
+    path = tmp_path / "message.msg"
+    path.write_bytes(b"fake ole payload")
+    converted = EmailMessage()
+    converted["From"] = "outlook@example.test"
+    converted["To"] = "receiver@example.test"
+    converted["Subject"] = "Outlook message"
+    converted.set_content("MSG body")
+    converted.add_attachment(b"from msg", maintype="text", subtype="plain", filename="msg-note.txt")
+
+    class FakeOutlookMessage:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def asEmailMessage(self):
+            return converted
+
+    monkeypatch.setattr("app.container_formats.olefile.isOleFile", lambda _path: True)
+    monkeypatch.setattr(
+        "app.container_formats.extract_msg.openMsg", lambda _path: FakeOutlookMessage()
+    )
+
+    data, _ = list_email(path)
+    assert data["from"] == "outlook@example.test"
+    assert data["subject"] == "Outlook message"
+    assert data["text"] == "MSG body"
+    assert data["attachments"][0]["name"] == "msg-note.txt"
+
+    destination = tmp_path / "msg-note.txt"
+    extracted_name = extract_email_entry(path, data["attachments"][0]["locator"], destination)
+    assert extracted_name == "msg-note.txt"
+    assert destination.read_bytes() == b"from msg"

@@ -125,7 +125,7 @@ function Landing() {
         <p className="eyebrow">Внутренний сервис</p>
         <h1>Просмотр файлов</h1>
         <p className="landing-copy">
-          Откройте публичную HTTP-ссылку на документ, изображение, архив или EML.
+          Откройте публичную HTTP-ссылку на документ, изображение, аудио, архив или письмо.
         </p>
         <form onSubmit={submit}>
           <label htmlFor="source-url">Адрес файла</label>
@@ -177,6 +177,27 @@ function PreviewBody({ preview }: { preview: Preview }) {
   }
   if (preview.renderer === "image" && preview.content_url) {
     return <div className="image-canvas"><img src={preview.content_url} alt={preview.display_name} /></div>;
+  }
+  if (preview.renderer === "audio" && preview.content_url) {
+    return (
+      <section className="audio-view">
+        <div className="audio-glyph" aria-hidden="true">♪</div>
+        <h2>{preview.display_name}</h2>
+        <audio controls preload="metadata" src={preview.content_url}>
+          Браузер не поддерживает воспроизведение этого аудиофайла.
+        </audio>
+      </section>
+    );
+  }
+  if (preview.renderer === "html" && preview.content_url) {
+    return (
+      <iframe
+        className="html-frame"
+        sandbox=""
+        src={preview.content_url}
+        title={preview.display_name}
+      />
+    );
   }
   if (preview.renderer === "text" && preview.content_url) return <TextView url={preview.content_url} />;
   if (preview.renderer === "spreadsheet" && preview.data_url) return <SpreadsheetView url={preview.data_url} />;

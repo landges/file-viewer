@@ -42,6 +42,10 @@ async def process_materialized_file(
         target = entry_dir / f"preview{detected.extension}"
         await asyncio.to_thread(shutil.copy2, source_path, target)
         return ProcessResult("image", detected.label, detected.mime_type, target.name)
+    if detected.kind == "audio":
+        target = entry_dir / f"preview{detected.extension}"
+        await asyncio.to_thread(shutil.copy2, source_path, target)
+        return ProcessResult("audio", detected.label, detected.mime_type, target.name)
     if detected.kind == "image_convert":
         return await _convert_image(source_path, entry_dir, detected)
     if detected.kind == "office":
@@ -52,9 +56,11 @@ async def process_materialized_file(
         return await _render_delimited(source_path, entry_dir, detected, settings)
     if detected.kind == "archive":
         return await _render_archive(source_path, entry_dir, detected, settings)
-    if detected.kind == "email":
-        return await _render_email(source_path, entry_dir, settings)
-    if detected.kind == "text":
+    if detected.kind in {"email", "outlook_email"}:
+        return await _render_email(source_path, entry_dir, detected, settings)
+    if detected.kind == "html":
+        return await _render_html(source_path, entry_dir, detected, settings)
+    if detected.kind in {"text", "xml"}:
         return await _render_text(source_path, entry_dir, detected, settings)
     return ProcessResult("unsupported", detected.label, detected.mime_type, None)
 
@@ -205,14 +211,16 @@ async def _render_archive(
     return ProcessResult("archive", detected.label, "application/json", output.name)
 
 
-async def _render_email(source_path: Path, entry_dir: Path, settings: Settings) -> ProcessResult:
+async def _render_email(
+    source_path: Path, entry_dir: Path, detected: DetectedFormat, settings: Settings
+) -> ProcessResult:
     if source_path.stat().st_size > settings.max_office_bytes:
-        raise HTTPException(status_code=413, detail="EML-файл превышает лимит")
+        raise HTTPException(status_code=413, detail="Почтовый файл превышает лимит")
     data, _ = await asyncio.to_thread(list_email, source_path)
     data["html"] = _sanitize_email_html(data["html"])
     output = entry_dir / "email.json"
     await asyncio.to_thread(write_json, output, data)
-    return ProcessResult("email", "Email", "application/json", output.name)
+    return ProcessResult("email", detected.label, "application/json", output.name)
 
 
 async def _render_text(
@@ -224,6 +232,18 @@ async def _render_text(
     output = entry_dir / "preview.txt"
     await asyncio.to_thread(output.write_text, content, encoding="utf-8")
     return ProcessResult("text", detected.label, "text/plain; charset=utf-8", output.name)
+
+
+async def _render_html(
+    source_path: Path, entry_dir: Path, detected: DetectedFormat, settings: Settings
+) -> ProcessResult:
+    if source_path.stat().st_size > settings.max_text_bytes:
+        raise HTTPException(status_code=413, detail="HTML-файл превышает лимит")
+    content = await asyncio.to_thread(_decode_text, source_path.read_bytes())
+    sanitized = _sanitize_email_html(content)
+    output = entry_dir / "preview.html"
+    await asyncio.to_thread(output.write_text, sanitized, encoding="utf-8")
+    return ProcessResult("html", detected.label, "text/html; charset=utf-8", output.name)
 
 
 async def _convert_image(

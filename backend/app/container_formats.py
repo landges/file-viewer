@@ -5,9 +5,12 @@ import hashlib
 import json
 import zipfile
 from email import policy
+from email.message import EmailMessage
 from email.parser import BytesParser
 from pathlib import Path
 
+import extract_msg
+import olefile
 import rarfile
 from fastapi import HTTPException
 
@@ -140,7 +143,7 @@ async def list_7z(path: Path, settings: Settings) -> dict:
 
 
 def list_email(path: Path) -> tuple[dict, object]:
-    message = BytesParser(policy=policy.default).parsebytes(path.read_bytes())
+    message = _load_email_message(path)
     plain_parts: list[str] = []
     html_parts: list[str] = []
     attachments: list[dict] = []
@@ -163,20 +166,20 @@ def list_email(path: Path) -> tuple[dict, object]:
             continue
         if content_type == "text/plain":
             try:
-                plain_parts.append(part.get_content())
+                plain_parts.append(_clean_email_text(part.get_content()))
             except (LookupError, UnicodeError):
-                plain_parts.append((part.get_payload(decode=True) or b"").decode("utf-8", "replace"))
+                plain_parts.append(_clean_email_text((part.get_payload(decode=True) or b"").decode("utf-8", "replace")))
         elif content_type == "text/html":
             try:
-                html_parts.append(part.get_content())
+                html_parts.append(_clean_email_text(part.get_content()))
             except (LookupError, UnicodeError):
-                html_parts.append((part.get_payload(decode=True) or b"").decode("utf-8", "replace"))
+                html_parts.append(_clean_email_text((part.get_payload(decode=True) or b"").decode("utf-8", "replace")))
     data = {
-        "from": str(message.get("From", "")),
-        "to": str(message.get("To", "")),
-        "cc": str(message.get("Cc", "")),
-        "subject": str(message.get("Subject", "")),
-        "date": str(message.get("Date", "")),
+        "from": _clean_email_text(message.get("From", "")),
+        "to": _clean_email_text(message.get("To", "")),
+        "cc": _clean_email_text(message.get("Cc", "")),
+        "subject": _clean_email_text(message.get("Subject", "")),
+        "date": _clean_email_text(message.get("Date", "")),
         "text": "\n\n".join(plain_parts),
         "html": "\n".join(html_parts),
         "attachments": attachments,
@@ -269,7 +272,7 @@ async def extract_7z_entry(
 
 
 def extract_email_entry(email_path: Path, locator: str, destination: Path) -> str:
-    message = BytesParser(policy=policy.default).parsebytes(email_path.read_bytes())
+    message = _load_email_message(email_path)
     try:
         expected_index = int(locator.removeprefix("part-"))
     except ValueError as exc:
@@ -279,6 +282,25 @@ def extract_email_entry(email_path: Path, locator: str, destination: Path) -> st
             destination.write_bytes(part.get_payload(decode=True) or b"")
             return safe_display_name(part.get_filename(), f"attachment-{index}")
     raise HTTPException(status_code=404, detail="Вложение не найдено")
+
+
+def _load_email_message(path: Path) -> EmailMessage:
+    if olefile.isOleFile(path):
+        try:
+            with extract_msg.openMsg(str(path)) as outlook_message:
+                message = outlook_message.asEmailMessage()
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail="Outlook MSG не удалось прочитать") from exc
+        if not isinstance(message, EmailMessage):
+            raise HTTPException(status_code=422, detail="Outlook MSG не содержит почтового сообщения")
+        # extract-msg can return compatibility MIMEText children even when the root
+        # is EmailMessage. Reparse once so MSG MIME part uses the modern API.
+        return BytesParser(policy=policy.default).parsebytes(message.as_bytes(policy=policy.default))
+    return BytesParser(policy=policy.default).parsebytes(path.read_bytes())
+
+
+def _clean_email_text(value: object) -> str:
+    return str(value or "").replace("\x00", "").strip()
 
 
 def write_json(path: Path, data: dict) -> None:

@@ -3,7 +3,9 @@ export type Renderer =
   | "proxy"
   | "pdf"
   | "image"
+  | "audio"
   | "text"
+  | "html"
   | "spreadsheet"
   | "archive"
   | "email"
@@ -61,4 +63,3 @@ export function openEntry(id: string, entryId: string): Promise<Preview> {
 export async function getData<T>(url: string): Promise<T> {
   return request<T>(url);
 }
-

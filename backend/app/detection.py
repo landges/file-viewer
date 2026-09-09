@@ -37,6 +37,7 @@ ARCHIVE_SIGNATURES: list[tuple[bytes, DetectedFormat]] = [
 
 def detect_prefix(prefix: bytes, filename: str = "") -> DetectedFormat:
     lower_name = filename.lower()
+    extension = Path(lower_name).suffix
     if prefix.startswith(b"%PDF-"):
         return DetectedFormat("pdf", "application/pdf", ".pdf", "PDF")
     for signature, detected in IMAGE_SIGNATURES:
@@ -44,6 +45,10 @@ def detect_prefix(prefix: bytes, filename: str = "") -> DetectedFormat:
             return detected
     if prefix.startswith(b"RIFF") and prefix[8:12] == b"WEBP":
         return DetectedFormat("image", "image/webp", ".webp", "WebP")
+    if prefix.startswith(b"RIFF") and prefix[8:12] == b"WAVE":
+        return DetectedFormat("audio", "audio/wav", ".wav", "WAV audio")
+    if prefix.startswith(b"ID3") or _looks_like_mp3_frame(prefix):
+        return DetectedFormat("audio", "audio/mpeg", ".mp3", "MP3 audio")
     if prefix.lstrip().startswith(b"<svg") or b"<svg" in prefix[:1024].lower():
         return DetectedFormat("image", "image/svg+xml", ".svg", "SVG")
     if prefix.startswith((b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08")):
@@ -54,17 +59,28 @@ def detect_prefix(prefix: bytes, filename: str = "") -> DetectedFormat:
     if len(prefix) > 265 and prefix[257:262] == b"ustar":
         return DetectedFormat("archive", "application/x-tar", ".tar", "TAR")
     if prefix.startswith(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"):
-        extension = Path(lower_name).suffix
         mapping = {
             ".doc": DetectedFormat("office", "application/msword", ".doc", "Microsoft Word"),
             ".xls": DetectedFormat("spreadsheet", "application/vnd.ms-excel", ".xls", "Microsoft Excel"),
             ".ppt": DetectedFormat("office", "application/vnd.ms-powerpoint", ".ppt", "Microsoft PowerPoint"),
+            ".msg": DetectedFormat("outlook_email", "application/vnd.ms-outlook", ".msg", "Outlook MSG"),
         }
         return mapping.get(extension, DetectedFormat("office", "application/x-ole-storage", extension or ".ole", "OLE document"))
-    if prefix.startswith(b"{\\rtf"):
+    rtf_prefix = prefix.removeprefix(b"\xef\xbb\xbf").lstrip(b" \t\r\n")
+    if rtf_prefix[:5].lower() == b"{\\rtf":
         return DetectedFormat("office", "application/rtf", ".rtf", "RTF")
 
-    extension = Path(lower_name).suffix
+    if extension == ".rtf" and _looks_text(prefix):
+        return DetectedFormat("office", "application/rtf", ".rtf", "RTF")
+    markup_prefix = _markup_prefix(prefix).lstrip().lower()
+    if re.match(r"(?:<!doctype\s+html\b|<html(?:\s|>))", markup_prefix):
+        return DetectedFormat("html", "text/html", ".html", "HTML")
+    if markup_prefix.startswith("<?xml"):
+        return DetectedFormat("xml", "application/xml", ".xml", "XML")
+    if extension in {".html", ".htm"}:
+        return DetectedFormat("html", "text/html", extension, "HTML")
+    if extension == ".xml":
+        return DetectedFormat("xml", "application/xml", ".xml", "XML")
     if extension == ".eml" or _looks_like_email(prefix):
         return DetectedFormat("email", "message/rfc822", ".eml", "Email")
     if extension in {".csv", ".tsv"} and _looks_text(prefix):
@@ -105,6 +121,11 @@ def inspect_ole(path: Path, fallback: DetectedFormat) -> DetectedFormat:
             streams = {"/".join(parts).lower() for parts in document.listdir()}
     except (OSError, IOError, olefile.OleFileError):
         return fallback
+    if "__properties_version1.0" in streams and any(
+        stream.startswith(("__substg1.0_", "__recip_version1.0_", "__attach_version1.0_"))
+        for stream in streams
+    ):
+        return DetectedFormat("outlook_email", "application/vnd.ms-outlook", ".msg", "Outlook MSG")
     if "worddocument" in streams:
         return DetectedFormat("office", "application/msword", ".doc", "Microsoft Word")
     if "workbook" in streams or "book" in streams:
@@ -121,6 +142,22 @@ def _looks_like_email(prefix: bytes) -> bool:
         header, separator, _ = text.partition("\r\n\r\n")
     matches = re.findall(r"(?im)^(from|to|subject|date|mime-version|content-type):", header[:16_000])
     return len(set(item.lower() for item in matches)) >= 2
+
+
+def _looks_like_mp3_frame(prefix: bytes) -> bool:
+    if len(prefix) < 4 or prefix[0] != 0xFF or prefix[1] & 0xE0 != 0xE0:
+        return False
+    layer = (prefix[1] >> 1) & 0x03
+    bitrate_index = (prefix[2] >> 4) & 0x0F
+    sample_rate_index = (prefix[2] >> 2) & 0x03
+    return layer != 0 and bitrate_index not in {0, 0x0F} and sample_rate_index != 0x03
+
+
+def _markup_prefix(prefix: bytes) -> str:
+    sample = prefix[:8192]
+    if sample.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return sample.decode("utf-16", "ignore")
+    return sample.decode("utf-8-sig", "ignore")
 
 
 def _looks_text(prefix: bytes) -> bool:

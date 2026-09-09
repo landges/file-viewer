@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 PreviewStatus = Literal["queued", "processing", "ready", "failed"]
 Renderer = Literal[
-    "proxy", "pdf", "image", "text", "spreadsheet", "archive", "email", "unsupported"
+    "proxy", "pdf", "image", "audio", "text", "html", "spreadsheet", "archive", "email", "unsupported"
 ]
 
 
@@ -67,4 +67,3 @@ class SourceProbe(BaseModel):
     last_modified: str | None = None
     content_type: str | None = None
     filename: str | None = None
-

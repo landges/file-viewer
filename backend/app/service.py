@@ -146,7 +146,9 @@ class PreviewService:
 
     def to_public(self, manifest: PreviewManifest) -> PreviewPublic:
         ready = manifest.status == "ready"
-        has_content = ready and manifest.renderer in {"proxy", "pdf", "image", "text"}
+        has_content = ready and manifest.renderer in {
+            "proxy", "pdf", "image", "audio", "text", "html"
+        }
         has_data = ready and manifest.renderer in {"spreadsheet", "archive", "email"}
         return PreviewPublic(
             id=manifest.id,
@@ -196,8 +198,8 @@ class PreviewService:
                 if not manifest.origin_chain:
                     prefix = await self.source.read_prefix(manifest.source_url)
                     detected = detect_prefix(prefix, manifest.display_name)
-                    if detected.kind in {"pdf", "image"}:
-                        manifest.renderer = "pdf" if detected.kind == "pdf" else "image"
+                    if detected.kind in {"pdf", "image", "audio"}:
+                        manifest.renderer = detected.kind
                         manifest.detected_type = detected.label
                         manifest.mime_type = detected.mime_type
                         manifest.asset_name = None
