@@ -54,7 +54,9 @@ def main() -> None:
         "image.png": "image",
         "audio.wav": "audio",
         "audio.mp3": "audio",
-        "document.xml": "text",
+        "document.xml": "xml",
+        "arabic-windows-1256.xml": "xml",
+        "data.json": "json",
         "page.html": "html",
         "page.htm": "html",
         "archive.custom-package": "archive",
@@ -74,7 +76,21 @@ def main() -> None:
         xml_content = response.read().decode("utf-8")
     assert xml["detected_type"] == "XML"
     assert "<catalog>" in xml_content and "Тестовый XML" in xml_content
-    results.append("OK XML safe text preview")
+    results.append("OK XML safe formatted preview")
+
+    arabic_xml = previews["arabic-windows-1256.xml"]
+    with urlopen(f"{viewer}{arabic_xml['content_url']}", timeout=20) as response:
+        arabic_content = response.read().decode("utf-8")
+    assert "مرحبا بالعالم" in arabic_content
+    results.append("OK XML Windows-1256 Arabic decoding")
+
+    json_preview = previews["data.json"]
+    with urlopen(f"{viewer}{json_preview['content_url']}", timeout=20) as response:
+        json_content = response.read().decode("utf-8")
+    assert json_preview["detected_type"] == "JSON"
+    assert "مرحبا" in json_content
+    assert "900719925474099312345" in json_content
+    results.append("OK JSON inert formatted preview")
 
     for filename in ("page.html", "page.htm"):
         html = previews[filename]

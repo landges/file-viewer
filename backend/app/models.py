@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 PreviewStatus = Literal["queued", "processing", "ready", "failed"]
 Renderer = Literal[
-    "proxy", "pdf", "image", "audio", "text", "html", "spreadsheet", "archive", "email", "unsupported"
+    "proxy", "pdf", "image", "audio", "text", "xml", "json", "html", "spreadsheet", "archive", "email", "unsupported"
 ]
 
 

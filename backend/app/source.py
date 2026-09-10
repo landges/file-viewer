@@ -26,9 +26,16 @@ class SourceClient:
             pool=30.0,
         )
         self.client = httpx.AsyncClient(timeout=timeout, follow_redirects=False)
+        self.insecure_client = (
+            httpx.AsyncClient(timeout=timeout, follow_redirects=False, verify=False)
+            if settings.source_tls_insecure_hosts
+            else None
+        )
 
     async def close(self) -> None:
         await self.client.aclose()
+        if self.insecure_client:
+            await self.insecure_client.aclose()
 
     async def _open(self, method: str, url: str, headers: dict[str, str] | None = None) -> tuple[str, httpx.Response]:
         current = url
@@ -36,8 +43,9 @@ class SourceClient:
         for _ in range(self.settings.source_max_redirects + 1):
             self.policy.validate(current)
             try:
-                request = self.client.build_request(method, current, headers=request_headers)
-                response = await self.client.send(request, stream=True)
+                client = self._client_for_url(current)
+                request = client.build_request(method, current, headers=request_headers)
+                response = await client.send(request, stream=True)
             except httpx.HTTPError as exc:
                 raise HTTPException(status_code=502, detail="Источник файла недоступен") from exc
             if response.status_code in {301, 302, 303, 307, 308}:
@@ -49,6 +57,11 @@ class SourceClient:
                 continue
             return current, response
         raise HTTPException(status_code=502, detail="Слишком много перенаправлений источника")
+
+    def _client_for_url(self, url: str) -> httpx.AsyncClient:
+        if not self.policy.requires_tls_verification(url) and self.insecure_client:
+            return self.insecure_client
+        return self.client
 
     @asynccontextmanager
     async def stream(
@@ -144,4 +157,3 @@ def _content_disposition_name(value: str | None) -> str | None:
         return safe_display_name(unquote(encoded.group(1)))
     plain = re.search(r'filename="?([^";]+)', value, re.IGNORECASE)
     return safe_display_name(plain.group(1)) if plain else None
-

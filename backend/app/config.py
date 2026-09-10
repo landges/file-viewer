@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     source_allowed_hosts: list[str] = Field(default_factory=lambda: ["localhost"])
     source_allowed_ports: list[int] = Field(default_factory=lambda: [80, 443])
     source_allowed_schemes: list[str] = Field(default_factory=lambda: ["http", "https"])
+    source_tls_insecure_hosts: list[str] = Field(default_factory=list)
     source_connect_timeout: float = 10.0
     source_read_timeout: float = 120.0
     source_max_redirects: int = 5
@@ -42,7 +43,9 @@ class Settings(BaseSettings):
     office_timeout_seconds: int = 180
     archive_timeout_seconds: int = 180
 
-    @field_validator("source_allowed_hosts", "source_allowed_schemes", mode="before")
+    @field_validator(
+        "source_allowed_hosts", "source_allowed_schemes", "source_tls_insecure_hosts", mode="before"
+    )
     @classmethod
     def split_strings(cls, value: object) -> object:
         if isinstance(value, str):

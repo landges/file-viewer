@@ -12,6 +12,7 @@ def policy() -> SourceUrlPolicy:
             source_allowed_hosts=["*.storage.internal", "source.localhost"],
             source_allowed_ports=[80, 8081],
             source_allowed_schemes=["http"],
+            source_tls_insecure_hosts=["legacy.storage.internal"],
         )
     )
 
@@ -41,3 +42,18 @@ def test_archive_paths_and_names_are_normalized() -> None:
     assert not safe_archive_path("/absolute/path")
     assert safe_display_name("folder\\document.docx") == "document.docx"
 
+
+def test_tls_verification_exception_is_exact_and_https_only() -> None:
+    source_policy = policy()
+    assert not source_policy.requires_tls_verification(
+        "https://legacy.storage.internal:9001/file.xml"
+    )
+    assert source_policy.requires_tls_verification(
+        "https://sub.legacy.storage.internal:9001/file.xml"
+    )
+    assert source_policy.requires_tls_verification(
+        "https://bucket.storage.internal:9001/file.xml"
+    )
+    assert source_policy.requires_tls_verification(
+        "http://legacy.storage.internal:9000/file.xml"
+    )

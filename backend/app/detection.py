@@ -81,6 +81,8 @@ def detect_prefix(prefix: bytes, filename: str = "") -> DetectedFormat:
         return DetectedFormat("html", "text/html", extension, "HTML")
     if extension == ".xml":
         return DetectedFormat("xml", "application/xml", ".xml", "XML")
+    if extension == ".json" and _looks_text(prefix):
+        return DetectedFormat("json", "application/json", ".json", "JSON")
     if extension == ".eml" or _looks_like_email(prefix):
         return DetectedFormat("email", "message/rfc822", ".eml", "Email")
     if extension in {".csv", ".tsv"} and _looks_text(prefix):

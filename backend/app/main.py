@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import quote
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
@@ -60,6 +60,12 @@ async def create_preview(payload: PreviewCreateRequest, request: Request) -> Pre
     return service(request).to_public(preview)
 
 
+@app.post("/api/uploads", response_model=PreviewPublic, status_code=202)
+async def upload_preview(request: Request, file: UploadFile = File(...)) -> PreviewPublic:
+    preview = await service(request).create_upload(file)
+    return service(request).to_public(preview)
+
+
 @app.get("/api/previews/{preview_id}", response_model=PreviewPublic)
 async def get_preview(preview_id: str, request: Request) -> PreviewPublic:
     preview = await service(request).require(preview_id)
@@ -104,7 +110,7 @@ async def download(preview_id: str, request: Request):
     preview = await service(request).require(preview_id)
     if preview.status != "ready":
         raise HTTPException(status_code=409, detail="Предпросмотр ещё не готов")
-    if not preview.origin_chain:
+    if not preview.origin_chain and not service(request).is_uploaded(preview):
         return await _proxy_source(
             request,
             preview.source_url,

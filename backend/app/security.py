@@ -37,6 +37,17 @@ class SourceUrlPolicy:
 
         return raw_url
 
+    def requires_tls_verification(self, raw_url: str) -> bool:
+        parsed = urlsplit(raw_url)
+        if parsed.scheme.lower() != "https" or not parsed.hostname:
+            return True
+        hostname = parsed.hostname.rstrip(".").lower()
+        insecure_hosts = {
+            configured.rstrip(".").lower()
+            for configured in self.settings.source_tls_insecure_hosts
+        }
+        return hostname not in insecure_hosts
+
 
 def safe_display_name(value: str | None, fallback: str = "file") -> str:
     if not value:
@@ -50,4 +61,3 @@ def safe_archive_path(value: str) -> bool:
     normalized = value.replace("\\", "/")
     path = PurePosixPath(normalized)
     return bool(normalized) and not path.is_absolute() and ".." not in path.parts
-

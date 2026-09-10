@@ -28,6 +28,9 @@ class LocalPreviewCache:
     def manifest_path(self, preview_id: str) -> Path:
         return self.entry_dir(preview_id) / "manifest.json"
 
+    def upload_path(self, preview_id: str) -> Path:
+        return self.entry_dir(preview_id) / "source.upload"
+
     async def load(self, preview_id: str, touch: bool = False) -> PreviewManifest | None:
         path = self.manifest_path(preview_id)
         try:

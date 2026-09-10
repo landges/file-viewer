@@ -4,13 +4,15 @@ import asyncio
 import hashlib
 import json
 import logging
+import secrets
 import shutil
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
 import rarfile
-from fastapi import HTTPException
+import aiofiles
+from fastapi import HTTPException, UploadFile
 
 from .cache import LocalPreviewCache
 from .config import Settings
@@ -27,6 +29,8 @@ from .security import safe_display_name
 from .source import SourceClient
 
 logger = logging.getLogger(__name__)
+PREVIEW_PIPELINE_VERSION = "3"
+UPLOAD_SCHEME = "upload"
 
 
 class PreviewService:
@@ -41,6 +45,7 @@ class PreviewService:
         probe = await self.source.probe(source_url)
         display_name = safe_display_name(filename or probe.filename, "file")
         preview_id = _preview_id(
+            PREVIEW_PIPELINE_VERSION,
             probe.final_url,
             probe.etag,
             probe.last_modified,
@@ -71,6 +76,38 @@ class PreviewService:
         self._schedule(manifest)
         return manifest
 
+    async def create_upload(self, upload: UploadFile) -> PreviewManifest:
+        preview_id = secrets.token_hex(16)
+        display_name = safe_display_name(upload.filename, "file")
+        upload_path = self.cache.upload_path(preview_id)
+        upload_path.parent.mkdir(parents=True, exist_ok=True)
+        digest = hashlib.sha256()
+        size = 0
+        try:
+            async with aiofiles.open(upload_path, "wb") as output:
+                while chunk := await upload.read(1024 * 1024):
+                    size += len(chunk)
+                    if size > self.settings.max_source_bytes:
+                        raise HTTPException(status_code=413, detail="Файл превышает допустимый размер")
+                    digest.update(chunk)
+                    await output.write(chunk)
+        except Exception:
+            await self.cache.remove(preview_id)
+            raise
+        finally:
+            await upload.close()
+
+        manifest = PreviewManifest(
+            id=preview_id,
+            source_url=f"{UPLOAD_SCHEME}://{preview_id}",
+            display_name=display_name,
+            source_etag=digest.hexdigest(),
+            source_size=size,
+        )
+        await self.cache.save(manifest)
+        self._schedule(manifest)
+        return manifest
+
     async def create_embedded(self, parent_id: str, entry_id: str) -> PreviewManifest:
         parent = await self.require(parent_id)
         if parent.status != "ready" or parent.renderer not in {"archive", "email"}:
@@ -96,6 +133,7 @@ class PreviewService:
         chain = [*parent.origin_chain, step]
         chain_key = json.dumps([value.model_dump() for value in chain], ensure_ascii=False, sort_keys=True)
         preview_id = _preview_id(
+            PREVIEW_PIPELINE_VERSION,
             parent.source_url,
             parent.source_etag,
             parent.source_last_modified,
@@ -133,6 +171,9 @@ class PreviewService:
             raise HTTPException(status_code=404, detail="Предпросмотр не найден") from exc
         if manifest is None:
             raise HTTPException(status_code=404, detail="Предпросмотр не найден на этой реплике")
+        upload_root_id = _upload_root_id(manifest.source_url)
+        if touch and upload_root_id and upload_root_id != manifest.id:
+            await self.cache.load(upload_root_id, touch=True)
         return manifest
 
     async def read_data(self, manifest: PreviewManifest) -> dict:
@@ -147,7 +188,7 @@ class PreviewService:
     def to_public(self, manifest: PreviewManifest) -> PreviewPublic:
         ready = manifest.status == "ready"
         has_content = ready and manifest.renderer in {
-            "proxy", "pdf", "image", "audio", "text", "html"
+            "proxy", "pdf", "image", "audio", "text", "xml", "json", "html"
         }
         has_data = ready and manifest.renderer in {"spreadsheet", "archive", "email"}
         return PreviewPublic(
@@ -173,6 +214,10 @@ class PreviewService:
             await asyncio.to_thread(shutil.rmtree, work_dir, True)
             raise
 
+    @staticmethod
+    def is_uploaded(manifest: PreviewManifest) -> bool:
+        return _upload_root_id(manifest.source_url) is not None
+
     async def stop(self) -> None:
         active = [task for task in self.tasks.values() if not task.done()]
         for task in active:
@@ -195,7 +240,7 @@ class PreviewService:
         work_dir = Path(tempfile.mkdtemp(prefix=f"job-{preview_id[:8]}-", dir=self.settings.work_dir))
         try:
             async with self.conversion_slots:
-                if not manifest.origin_chain:
+                if not manifest.origin_chain and not self.is_uploaded(manifest):
                     prefix = await self.source.read_prefix(manifest.source_url)
                     detected = detect_prefix(prefix, manifest.display_name)
                     if detected.kind in {"pdf", "image", "audio"}:
@@ -244,9 +289,21 @@ class PreviewService:
             await asyncio.to_thread(shutil.rmtree, work_dir, True)
 
     async def _materialize(self, manifest: PreviewManifest, work_dir: Path) -> tuple[Path, str]:
-        current_name = safe_display_name(manifest.source_url.rsplit("/", 1)[-1], manifest.display_name)
-        current = work_dir / f"root{Path(current_name).suffix or '.bin'}"
-        await self.source.download(manifest.source_url, current, self.settings.max_source_bytes)
+        upload_root_id = _upload_root_id(manifest.source_url)
+        if upload_root_id:
+            upload_path = self.cache.upload_path(upload_root_id)
+            if not upload_path.is_file():
+                raise HTTPException(status_code=404, detail="Загруженный файл удалён из локального кэша")
+            root_manifest = await self.cache.load(upload_root_id)
+            current_name = root_manifest.display_name if root_manifest else manifest.display_name
+            current = work_dir / f"root{Path(current_name).suffix or '.bin'}"
+            await asyncio.to_thread(shutil.copy2, upload_path, current)
+        else:
+            current_name = safe_display_name(
+                manifest.source_url.rsplit("/", 1)[-1], manifest.display_name
+            )
+            current = work_dir / f"root{Path(current_name).suffix or '.bin'}"
+            await self.source.download(manifest.source_url, current, self.settings.max_source_bytes)
         for index, step in enumerate(manifest.origin_chain):
             next_path = work_dir / f"nested-{index}{Path(step.filename).suffix or '.bin'}"
             if step.container == "email":
@@ -269,6 +326,16 @@ def _preview_id(*parts: str | None) -> str:
         digest.update((part or "").encode("utf-8", "surrogatepass"))
         digest.update(b"\x00")
     return digest.hexdigest()[:32]
+
+
+def _upload_root_id(source_url: str) -> str | None:
+    prefix = f"{UPLOAD_SCHEME}://"
+    if not source_url.startswith(prefix):
+        return None
+    preview_id = source_url.removeprefix(prefix).split("/", 1)[0]
+    if len(preview_id) != 32 or any(character not in "0123456789abcdef" for character in preview_id):
+        return None
+    return preview_id
 
 
 def _read_prefix(path: Path, limit: int = 262_144) -> bytes:

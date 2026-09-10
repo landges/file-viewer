@@ -5,6 +5,8 @@ export type Renderer =
   | "image"
   | "audio"
   | "text"
+  | "xml"
+  | "json"
   | "html"
   | "spreadsheet"
   | "archive"
@@ -46,6 +48,12 @@ export function createPreview(url: string, filename?: string): Promise<Preview> 
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url, filename: filename || null })
   });
+}
+
+export function uploadPreview(file: File): Promise<Preview> {
+  const body = new FormData();
+  body.append("file", file);
+  return request<Preview>("/api/uploads", { method: "POST", body });
 }
 
 export function getPreview(id: string): Promise<Preview> {

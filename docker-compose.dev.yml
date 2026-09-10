@@ -7,9 +7,10 @@ services:
       target: development
     environment:
       ENVIRONMENT: development
-      SOURCE_ALLOWED_HOSTS: source.localhost
-      SOURCE_ALLOWED_PORTS: 8081
-      SOURCE_ALLOWED_SCHEMES: http
+      SOURCE_ALLOWED_HOSTS: ${SOURCE_ALLOWED_HOSTS:-source.localhost}
+      SOURCE_ALLOWED_PORTS: ${SOURCE_ALLOWED_PORTS:-8081}
+      SOURCE_ALLOWED_SCHEMES: ${SOURCE_ALLOWED_SCHEMES:-http}
+      SOURCE_TLS_INSECURE_HOSTS: ${SOURCE_TLS_INSECURE_HOSTS:-}
       CACHE_DIR: /var/cache/file-viewer
     extra_hosts:
       - "source.localhost:host-gateway"

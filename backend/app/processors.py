@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import codecs
 import csv
+import re
 import shutil
+import unicodedata
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
@@ -60,7 +63,11 @@ async def process_materialized_file(
         return await _render_email(source_path, entry_dir, detected, settings)
     if detected.kind == "html":
         return await _render_html(source_path, entry_dir, detected, settings)
-    if detected.kind in {"text", "xml"}:
+    if detected.kind == "xml":
+        return await _render_xml(source_path, entry_dir, detected, settings)
+    if detected.kind == "json":
+        return await _render_json(source_path, entry_dir, detected, settings)
+    if detected.kind == "text":
         return await _render_text(source_path, entry_dir, detected, settings)
     return ProcessResult("unsupported", detected.label, detected.mime_type, None)
 
@@ -234,6 +241,30 @@ async def _render_text(
     return ProcessResult("text", detected.label, "text/plain; charset=utf-8", output.name)
 
 
+async def _render_xml(
+    source_path: Path, entry_dir: Path, detected: DetectedFormat, settings: Settings
+) -> ProcessResult:
+    if source_path.stat().st_size > settings.max_text_bytes:
+        raise HTTPException(status_code=413, detail="XML-файл превышает лимит")
+    content = await asyncio.to_thread(_decode_text, source_path.read_bytes())
+    output = entry_dir / "preview.xml.txt"
+    await asyncio.to_thread(output.write_text, content, encoding="utf-8")
+    # Keep the downloaded representation inert. The frontend renders and
+    # highlights it as text without inserting untrusted XML into the DOM.
+    return ProcessResult("xml", detected.label, "text/plain; charset=utf-8", output.name)
+
+
+async def _render_json(
+    source_path: Path, entry_dir: Path, detected: DetectedFormat, settings: Settings
+) -> ProcessResult:
+    if source_path.stat().st_size > settings.max_text_bytes:
+        raise HTTPException(status_code=413, detail="JSON-файл превышает лимит")
+    content = await asyncio.to_thread(_decode_text, source_path.read_bytes())
+    output = entry_dir / "preview.json.txt"
+    await asyncio.to_thread(output.write_text, content, encoding="utf-8")
+    return ProcessResult("json", detected.label, "text/plain; charset=utf-8", output.name)
+
+
 async def _render_html(
     source_path: Path, entry_dir: Path, detected: DetectedFormat, settings: Settings
 ) -> ProcessResult:
@@ -286,15 +317,157 @@ async def _run(command: list[str], timeout: int, error_prefix: str) -> None:
         raise HTTPException(status_code=422, detail=f"{error_prefix}: {details}")
 
 
+_DECLARED_ENCODING_PATTERNS = (
+    re.compile(br"<\?xml[^>]{0,512}\bencoding\s*=\s*['\"]\s*([a-z0-9._:-]+)", re.IGNORECASE),
+    re.compile(br"<meta\b[^>]{0,1024}\bcharset\s*=\s*['\"]?\s*([a-z0-9._:-]+)", re.IGNORECASE),
+    re.compile(br"<meta\b[^>]{0,1024}\bcontent\s*=\s*['\"][^'\"]*charset\s*=\s*([a-z0-9._:-]+)", re.IGNORECASE),
+)
+
+_ALLOWED_DECLARED_ENCODINGS = {
+    "ascii",
+    "cp720",
+    "cp864",
+    "cp1006",
+    "cp1251",
+    "cp1252",
+    "cp1256",
+    "iso8859-1",
+    "iso8859-6",
+    "koi8-r",
+    "mac-cyrillic",
+    "utf-8",
+    "utf-8-sig",
+    "utf-16",
+    "utf-16-be",
+    "utf-16-le",
+    "utf-32",
+    "utf-32-be",
+    "utf-32-le",
+}
+
+_LEGACY_ENCODINGS = (
+    "cp1256",     # Windows Arabic
+    "iso8859-6",  # ISO Arabic
+    "cp720",      # DOS Arabic
+    "cp1251",     # preserve the existing Cyrillic support
+    "cp1252",
+    "latin-1",
+)
+
+
 def _decode_text(data: bytes) -> str:
-    if data.startswith((b"\xff\xfe", b"\xfe\xff")):
-        return data.decode("utf-16", "replace")
-    for encoding in ("utf-8-sig", "cp1251", "latin-1"):
+    unicode_encoding = _unicode_encoding(data)
+    if unicode_encoding:
+        return data.decode(unicode_encoding, "replace")
+
+    declared_encoding = _declared_encoding(data)
+    if declared_encoding:
         try:
-            return data.decode(encoding)
+            return data.decode(declared_encoding)
+        except UnicodeDecodeError:
+            # A broken declaration should not make the preview unavailable.
+            pass
+
+    try:
+        return data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        pass
+
+    candidates: list[tuple[float, int, str]] = []
+    for priority, encoding in enumerate(_LEGACY_ENCODINGS):
+        try:
+            decoded = data.decode(encoding)
         except UnicodeDecodeError:
             continue
+        candidates.append((_text_quality(decoded), -priority, decoded))
+    if candidates:
+        return max(candidates, key=lambda candidate: (candidate[0], candidate[1]))[2]
     return data.decode("utf-8", "replace")
+
+
+def _unicode_encoding(data: bytes) -> str | None:
+    # UTF-32 little-endian starts with the UTF-16 LE BOM, so the longer
+    # signatures must be checked first.
+    signatures = (
+        (b"\x00\x00\xfe\xff", "utf-32"),
+        (b"\xff\xfe\x00\x00", "utf-32"),
+        (b"\xef\xbb\xbf", "utf-8-sig"),
+        (b"\xfe\xff", "utf-16"),
+        (b"\xff\xfe", "utf-16"),
+        (b"\x00\x00\x00<", "utf-32-be"),
+        (b"<\x00\x00\x00", "utf-32-le"),
+        (b"\x00<\x00?", "utf-16-be"),
+        (b"<\x00?\x00", "utf-16-le"),
+    )
+    return next((encoding for signature, encoding in signatures if data.startswith(signature)), None)
+
+
+def _declared_encoding(data: bytes) -> str | None:
+    sample = data[:4096]
+    for pattern in _DECLARED_ENCODING_PATTERNS:
+        match = pattern.search(sample)
+        if not match:
+            continue
+        try:
+            requested = match.group(1).decode("ascii")
+            canonical = codecs.lookup(requested).name
+        except (LookupError, UnicodeDecodeError):
+            continue
+        if canonical in _ALLOWED_DECLARED_ENCODINGS:
+            return canonical
+    return None
+
+
+def _text_quality(value: str) -> float:
+    scripts = {"arabic": 0, "cyrillic": 0, "latin": 0}
+    controls = 0
+    suspicious_symbols = 0
+    compatibility_characters = 0
+    cyrillic_uppercase = 0
+    cyrillic_internal_uppercase = 0
+    at_word_start = True
+
+    for character in value:
+        category = unicodedata.category(character)
+        if category.startswith("C") and character not in "\n\r\t\f":
+            controls += 1
+        name = unicodedata.name(character, "")
+        if name.startswith("ARABIC"):
+            scripts["arabic"] += 1
+        elif name.startswith("CYRILLIC"):
+            scripts["cyrillic"] += 1
+            if character.isupper():
+                cyrillic_uppercase += 1
+                if not at_word_start:
+                    cyrillic_internal_uppercase += 1
+        elif name.startswith("LATIN"):
+            scripts["latin"] += 1
+        if name.startswith(("BOX DRAWINGS", "BLOCK ELEMENT", "PRIVATE USE")):
+            suspicious_symbols += 1
+        if character != unicodedata.normalize("NFKC", character):
+            compatibility_characters += 1
+        at_word_start = not character.isalpha()
+
+    letter_count = sum(scripts.values())
+    dominant = max(scripts.values())
+    mixed_scripts = letter_count - dominant
+    score = (
+        dominant * 5
+        - mixed_scripts * 4
+        - controls * 30
+        - suspicious_symbols * 8
+        - compatibility_characters * 8
+    )
+
+    # Arabic bytes interpreted as Windows-1251 commonly turn into oddly
+    # capitalized Cyrillic words (for example مرحبا -> гСНИЗ). Penalizing
+    # capitals inside words separates those encodings without penalizing
+    # normal sentence capitalization.
+    if scripts["cyrillic"] >= 4:
+        score -= cyrillic_internal_uppercase * 8
+        if cyrillic_uppercase / scripts["cyrillic"] > 0.65:
+            score -= scripts["cyrillic"] * 2
+    return score
 
 
 def _sanitize_email_html(value: str) -> str:
@@ -307,6 +480,10 @@ def _sanitize_email_html(value: str) -> str:
     def allow_attribute(tag: str, name: str, attribute_value: str) -> bool:
         if name in {"colspan", "rowspan", "title", "alt"}:
             return True
+        if name == "dir":
+            return attribute_value.lower() in {"auto", "ltr", "rtl"}
+        if name == "lang":
+            return bool(re.fullmatch(r"[A-Za-z]{1,8}(?:-[A-Za-z0-9]{1,8})*", attribute_value))
         if tag == "a" and name == "href":
             return attribute_value.startswith(("http://", "https://", "mailto:"))
         if tag == "img" and name == "src":

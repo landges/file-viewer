@@ -63,6 +63,15 @@ def test_detects_xml_html_and_htm() -> None:
     assert detect_prefix(b"<catalog/>", "catalog.xml").kind == "xml"
 
 
+def test_detects_json_by_suffix() -> None:
+    detected = detect_prefix(b'{"enabled":true,"title":"Arabic"}', "data.JSON")
+    assert (detected.kind, detected.mime_type, detected.extension) == (
+        "json",
+        "application/json",
+        ".json",
+    )
+
+
 def test_detects_outlook_msg_by_suffix_and_ole_structure(tmp_path: Path, monkeypatch) -> None:
     signature = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
     assert detect_prefix(signature, "message.msg").kind == "outlook_email"

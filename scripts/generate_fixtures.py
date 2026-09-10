@@ -28,6 +28,11 @@ def main() -> None:
     create_wav(output / "audio.wav")
     create_mp3(output / "audio.mp3")
     create_markup_files(output)
+    (output / "data.json").write_text(
+        '{"service":"file-viewer","enabled":true,"items":[1,2,{"title":"مرحبا"}],'
+        '"large_id":900719925474099312345}\n',
+        encoding="utf-8",
+    )
     create_docx(output / "document.docx")
     create_rtf(output / "document.rtf")
     create_xlsx(output / "table.xlsx")
@@ -40,7 +45,7 @@ def main() -> None:
     create_outlook_message(output / "message.msg", output / "document.docx")
     (output / "broken.zip").write_bytes(b"PK\x03\x04this is deliberately damaged")
     convert_legacy_and_pdf(output)
-    (output / ".fixtures-version").write_text("4\n", encoding="ascii")
+    (output / ".fixtures-version").write_text("6\n", encoding="ascii")
     print(f"Generated fixtures in {output}")
 
 
@@ -85,6 +90,13 @@ def create_markup_files(output: Path) -> None:
 </catalog>
 """,
         encoding="utf-8",
+    )
+    (output / "arabic-windows-1256.xml").write_bytes(
+        """<?xml version="1.0" encoding="windows-1256"?>
+<catalog lang="ar" dir="rtl">
+  <title>مرحبا بالعالم</title>
+</catalog>
+""".encode("cp1256")
     )
     html = """<!doctype html>
 <html lang="ru">

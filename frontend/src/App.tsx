@@ -1,11 +1,22 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import {
+  DragEvent as ReactDragEvent,
+  FormEvent,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   createPreview,
   getData,
   getPreview,
   openEntry,
-  Preview
+  Preview,
+  uploadPreview,
 } from "./api";
+import { XmlView } from "./XmlView";
+import { JsonView } from "./JsonView";
 
 interface WorkbookData {
   sheets: Array<{ name: string; rows: unknown[][] }>;
@@ -54,12 +65,30 @@ interface EmailData {
   attachments: EmailAttachment[];
 }
 
+type Theme = "dark" | "light";
+const THEME_STORAGE_KEY = "file-viewer-theme";
+
 function App() {
   const params = useMemo(() => new URLSearchParams(window.location.search), []);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [theme, setTheme] = useState<Theme>(initialTheme);
   const sourceUrl = params.get("url");
   const initialId = params.get("id");
+
+  useLayoutEffect(() => {
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
+
+  function toggleTheme() {
+    const nextTheme = theme === "dark" ? "light" : "dark";
+    setTheme(nextTheme);
+    try {
+      window.localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
+    } catch {
+      // Theme still works for this tab when storage is unavailable.
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -92,10 +121,12 @@ function App() {
     return () => window.clearTimeout(timer);
   }, [preview]);
 
-  if (!sourceUrl && !initialId) return <Landing />;
+  if (!sourceUrl && !initialId) {
+    return <Landing theme={theme} onToggleTheme={toggleTheme} />;
+  }
   return (
     <div className="app-shell">
-      <Header preview={preview} />
+      <Header preview={preview} theme={theme} onToggleTheme={toggleTheme} />
       <main className="viewer-stage">
         {error && <ErrorPanel message={error} />}
         {!error && !preview && <LoadingPanel label="Подключаемся к источнику…" />}
@@ -108,8 +139,13 @@ function App() {
   );
 }
 
-function Landing() {
+function Landing({ theme, onToggleTheme }: { theme: Theme; onToggleTheme: () => void }) {
   const [url, setUrl] = useState("");
+  const [dragging, setDragging] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const dragDepth = useRef(0);
+
   function submit(event: FormEvent) {
     event.preventDefault();
     const next = new URL(window.location.href);
@@ -118,8 +154,56 @@ function Landing() {
     next.searchParams.set("url", url);
     window.location.assign(next);
   }
+
+  async function openLocalFile(file: File | undefined) {
+    if (!file || uploading) return;
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const preview = await uploadPreview(file);
+      window.location.assign(`/view?id=${encodeURIComponent(preview.id)}`);
+    } catch (caught) {
+      setUploadError(errorMessage(caught));
+      setUploading(false);
+    }
+  }
+
+  function enterDrag(event: ReactDragEvent<HTMLElement>) {
+    if (!hasDraggedFiles(event)) return;
+    event.preventDefault();
+    dragDepth.current += 1;
+    setDragging(true);
+  }
+
+  function leaveDrag(event: ReactDragEvent<HTMLElement>) {
+    if (!hasDraggedFiles(event)) return;
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (dragDepth.current === 0) setDragging(false);
+  }
+
+  function allowDrop(event: ReactDragEvent<HTMLElement>) {
+    if (!hasDraggedFiles(event)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  }
+
+  function dropFile(event: ReactDragEvent<HTMLElement>) {
+    if (!hasDraggedFiles(event)) return;
+    event.preventDefault();
+    dragDepth.current = 0;
+    setDragging(false);
+    void openLocalFile(event.dataTransfer.files[0]);
+  }
+
   return (
-    <main className="landing">
+    <main
+      className={`landing${dragging ? " dragging" : ""}`}
+      onDragEnter={enterDrag}
+      onDragLeave={leaveDrag}
+      onDragOver={allowDrop}
+      onDrop={dropFile}
+    >
+      <ThemeToggle theme={theme} onToggle={onToggleTheme} floating />
       <div className="landing-card">
         <div className="brand-mark">FV</div>
         <p className="eyebrow">Внутренний сервис</p>
@@ -141,12 +225,38 @@ function Landing() {
             <button type="submit">Открыть</button>
           </div>
         </form>
+        <div className="landing-divider"><span>или</span></div>
+        <label className={`drop-zone${dragging ? " active" : ""}${uploading ? " loading" : ""}`}>
+          <input
+            type="file"
+            disabled={uploading}
+            onChange={(event) => {
+              const file = event.currentTarget.files?.[0];
+              event.currentTarget.value = "";
+              void openLocalFile(file);
+            }}
+          />
+          <span className="drop-zone-icon" aria-hidden="true">{uploading ? "…" : "⇧"}</span>
+          <span>
+            <strong>{uploading ? "Загружаем файл…" : "Перетащите файл сюда"}</strong>
+            <small>{uploading ? "После загрузки откроется предпросмотр" : "или нажмите, чтобы выбрать на устройстве"}</small>
+          </span>
+        </label>
+        {uploadError && <p className="upload-error" role="alert">{uploadError}</p>}
       </div>
     </main>
   );
 }
 
-function Header({ preview }: { preview: Preview | null }) {
+function Header({
+  preview,
+  theme,
+  onToggleTheme,
+}: {
+  preview: Preview | null;
+  theme: Theme;
+  onToggleTheme: () => void;
+}) {
   return (
     <header className="topbar">
       <a className="brand" href="/" aria-label="File Viewer">
@@ -159,11 +269,36 @@ function Header({ preview }: { preview: Preview | null }) {
         )}
       </div>
       <div className="topbar-actions">
+        <ThemeToggle theme={theme} onToggle={onToggleTheme} />
         {preview?.download_url && (
           <a className="button secondary" href={preview.download_url}>Скачать</a>
         )}
       </div>
     </header>
+  );
+}
+
+function ThemeToggle({
+  theme,
+  onToggle,
+  floating = false,
+}: {
+  theme: Theme;
+  onToggle: () => void;
+  floating?: boolean;
+}) {
+  const light = theme === "light";
+  return (
+    <button
+      type="button"
+      className={`theme-toggle${floating ? " floating" : ""}`}
+      onClick={onToggle}
+      aria-label={light ? "Включить тёмную тему" : "Включить светлую тему"}
+      title={light ? "Тёмная тема" : "Светлая тема"}
+    >
+      <span aria-hidden="true">{light ? "☾" : "☀"}</span>
+      <span className="theme-toggle-label">{light ? "Тёмная" : "Светлая"}</span>
+    </button>
   );
 }
 
@@ -200,6 +335,8 @@ function PreviewBody({ preview }: { preview: Preview }) {
     );
   }
   if (preview.renderer === "text" && preview.content_url) return <TextView url={preview.content_url} />;
+  if (preview.renderer === "xml" && preview.content_url) return <XmlView url={preview.content_url} />;
+  if (preview.renderer === "json" && preview.content_url) return <JsonView url={preview.content_url} />;
   if (preview.renderer === "spreadsheet" && preview.data_url) return <SpreadsheetView url={preview.data_url} />;
   if (preview.renderer === "archive" && preview.data_url) return <ArchiveView preview={preview} />;
   if (preview.renderer === "email" && preview.data_url) return <EmailView preview={preview} />;
@@ -223,7 +360,7 @@ function TextView({ url }: { url: string }) {
     }).then(setContent).catch((caught) => setError(errorMessage(caught)));
   }, [url]);
   if (error) return <ErrorPanel message={error} />;
-  return <pre className="text-view">{content}</pre>;
+  return <pre className="text-view" dir="auto">{content}</pre>;
 }
 
 function SpreadsheetView({ url }: { url: string }) {
@@ -448,6 +585,20 @@ function buildArchiveTree(entries: ArchiveEntry[]): ArchiveNode[] {
 
 function errorMessage(value: unknown): string {
   return value instanceof Error ? value.message : "Неизвестная ошибка";
+}
+
+function hasDraggedFiles(event: ReactDragEvent<HTMLElement>): boolean {
+  return Array.from(event.dataTransfer.types).includes("Files");
+}
+
+function initialTheme(): Theme {
+  try {
+    const saved = window.localStorage.getItem(THEME_STORAGE_KEY);
+    if (saved === "dark" || saved === "light") return saved;
+  } catch {
+    // Fall back to the operating-system preference.
+  }
+  return window.matchMedia?.("(prefers-color-scheme: light)").matches ? "light" : "dark";
 }
 
 export default App;
