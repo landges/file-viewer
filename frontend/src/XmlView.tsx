@@ -1,12 +1,10 @@
 import { Fragment, ReactNode, useEffect, useMemo, useState } from "react";
+import { CopyTextButton, FoldableCode, FoldableLine } from "./StructuredTextControls";
 
 const MAX_FORMATTED_CHARACTERS = 1_000_000;
 const MAX_FORMATTED_LINES = 50_000;
 
-interface XmlLine {
-  indent: number;
-  value: string;
-}
+interface XmlLine extends FoldableLine {}
 
 interface XmlFrame {
   hasChild: boolean;
@@ -72,12 +70,15 @@ export function XmlView({ url }: { url: string }) {
           <strong>XML</strong>
           <span>{formatted ? `${formatted.length} строк` : "большой файл"}</span>
         </div>
-        {formatted && (
-          <div className="xml-modes" aria-label="Режим отображения">
-            <button className={!raw ? "active" : ""} onClick={() => setRaw(false)}>Форматированный</button>
-            <button className={raw ? "active" : ""} onClick={() => setRaw(true)}>Исходный</button>
-          </div>
-        )}
+        <div className="xml-toolbar-actions">
+          {formatted && (
+            <div className="xml-modes" aria-label="Режим отображения">
+              <button className={!raw ? "active" : ""} onClick={() => setRaw(false)}>Форматированный</button>
+              <button className={raw ? "active" : ""} onClick={() => setRaw(true)}>Исходный</button>
+            </div>
+          )}
+          <CopyTextButton text={content} />
+        </div>
       </div>
       {!formatted && (
         <div className="notice xml-notice">
@@ -88,13 +89,7 @@ export function XmlView({ url }: { url: string }) {
         {showRaw
           ? <pre className="xml-raw" dir="ltr">{content}</pre>
           : (
-            <ol className="xml-code">
-              {formatted!.map((line, index) => (
-                <li key={index} style={{ paddingInlineStart: `${24 + line.indent * 20}px` }}>
-                  <code>{highlightXml(line.value)}</code>
-                </li>
-              ))}
-            </ol>
+            <FoldableCode lines={formatted!} highlight={highlightXml} />
           )}
       </div>
     </section>
@@ -164,7 +159,35 @@ function formatXml(source: string): XmlLine[] {
     depth += 1;
     lastWasText = false;
   }
+  assignXmlFolds(lines);
   return lines;
+}
+
+function assignXmlFolds(lines: XmlLine[]): void {
+  const stack: Array<{ name: string; line: number }> = [];
+  lines.forEach((line, lineIndex) => {
+    for (const token of lexXml(line.value)) {
+      if (token.kind !== "markup") continue;
+      const value = token.value.trim();
+      const closing = value.match(/^<\/\s*([^\s>]+)[^>]*>/);
+      if (closing) {
+        let frameIndex = -1;
+        for (let index = stack.length - 1; index >= 0; index -= 1) {
+          if (stack[index].name === closing[1]) {
+            frameIndex = index;
+            break;
+          }
+        }
+        if (frameIndex < 0) continue;
+        const [frame] = stack.splice(frameIndex);
+        if (lineIndex > frame.line) lines[frame.line].foldEnd = lineIndex;
+        continue;
+      }
+      if (value.startsWith("<?") || value.startsWith("<!") || /\/\s*>$/.test(value)) continue;
+      const opening = value.match(/^<\s*([^\s/>]+)/);
+      if (opening) stack.push({ name: opening[1], line: lineIndex });
+    }
+  });
 }
 
 function lexXml(source: string): XmlToken[] {

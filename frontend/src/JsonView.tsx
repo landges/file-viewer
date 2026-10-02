@@ -1,12 +1,10 @@
 import { ReactNode, useEffect, useMemo, useState } from "react";
+import { CopyTextButton, FoldableCode, FoldableLine } from "./StructuredTextControls";
 
 const MAX_FORMATTED_CHARACTERS = 1_000_000;
 const MAX_FORMATTED_LINES = 50_000;
 
-interface JsonLine {
-  indent: number;
-  value: string;
-}
+interface JsonLine extends FoldableLine {}
 
 type JsonTokenKind = "string" | "number" | "boolean" | "null" | "punctuation" | "whitespace" | "other";
 
@@ -70,12 +68,15 @@ export function JsonView({ url }: { url: string }) {
           <strong>JSON</strong>
           <span>{formatted ? `${formatted.length} строк` : "большой файл"}</span>
         </div>
-        {formatted && (
-          <div className="xml-modes" aria-label="Режим отображения">
-            <button className={!raw ? "active" : ""} onClick={() => setRaw(false)}>Форматированный</button>
-            <button className={raw ? "active" : ""} onClick={() => setRaw(true)}>Исходный</button>
-          </div>
-        )}
+        <div className="xml-toolbar-actions">
+          {formatted && (
+            <div className="xml-modes" aria-label="Режим отображения">
+              <button className={!raw ? "active" : ""} onClick={() => setRaw(false)}>Форматированный</button>
+              <button className={raw ? "active" : ""} onClick={() => setRaw(true)}>Исходный</button>
+            </div>
+          )}
+          <CopyTextButton text={content} />
+        </div>
       </div>
       {!formatted && (
         <div className="notice xml-notice">
@@ -86,13 +87,7 @@ export function JsonView({ url }: { url: string }) {
         {showRaw
           ? <pre className="xml-raw" dir="ltr">{content}</pre>
           : (
-            <ol className="xml-code json-code">
-              {formatted!.map((line, index) => (
-                <li key={index} style={{ paddingInlineStart: `${24 + line.indent * 20}px` }}>
-                  <code>{highlightJson(line.value)}</code>
-                </li>
-              ))}
-            </ol>
+            <FoldableCode lines={formatted!} className="json-code" highlight={highlightJson} />
           )}
       </div>
     </section>
@@ -151,7 +146,33 @@ function formatJson(source: string): JsonLine[] {
     append(token.value);
   });
   push();
+  assignJsonFolds(lines);
   return lines;
+}
+
+function assignJsonFolds(lines: JsonLine[]): void {
+  const stack: Array<{ bracket: string; line: number }> = [];
+  lines.forEach((line, lineIndex) => {
+    for (const token of lexJson(line.value)) {
+      if (token.kind !== "punctuation") continue;
+      if (token.value === "{" || token.value === "[") {
+        stack.push({ bracket: token.value, line: lineIndex });
+        continue;
+      }
+      if (token.value !== "}" && token.value !== "]") continue;
+      const opening = token.value === "}" ? "{" : "[";
+      let frameIndex = -1;
+      for (let index = stack.length - 1; index >= 0; index -= 1) {
+        if (stack[index].bracket === opening) {
+          frameIndex = index;
+          break;
+        }
+      }
+      if (frameIndex < 0) continue;
+      const [frame] = stack.splice(frameIndex);
+      if (lineIndex > frame.line) lines[frame.line].foldEnd = lineIndex;
+    }
+  });
 }
 
 function lexJson(source: string): JsonToken[] {

@@ -99,9 +99,17 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .xml-toolbar > div:first-child { display: flex; align-items: baseline; gap: 9px; }
 .xml-toolbar strong { color: #8fffc1; font-size: 12px; letter-spacing: .08em; }
 .xml-toolbar span { color: #858c99; font-size: 11px; }
+.xml-toolbar-actions { display: flex; align-items: center; gap: 8px; }
 .xml-modes { display: flex; gap: 3px; padding: 3px; border-radius: 9px; background: #101216; }
 .xml-modes button { border: 0; border-radius: 6px; padding: 5px 9px; color: #8f96a3; background: transparent; cursor: pointer; font-size: 11px; }
 .xml-modes button.active { color: #e6e9ef; background: #30353e; }
+.copy-text-button { height: 30px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid #373d47; border-radius: 8px; padding: 0 9px; color: #b8bec8; background: #22262d; cursor: pointer; font-size: 11px; }
+.copy-text-button:hover { color: #e6e9ef; border-color: #505864; background: #2a2f37; }
+.copy-text-button:focus-visible, .fold-toggle:focus-visible { outline: 2px solid #65e6a1; outline-offset: 1px; }
+.copy-text-button.copied { color: #8fffc1; border-color: #3b7957; }
+.copy-text-button.error { color: #ff9d9d; border-color: #7a454c; }
+.copy-text-button .copy-text-icon { color: inherit; font-size: 15px; line-height: 1; }
+.copy-text-button .copy-text-label { color: inherit; font-size: 11px; }
 .xml-notice { grid-row: 2; }
 .xml-scroll { min-height: 0; grid-row: 3; overflow: auto; }
 .xml-code, .xml-raw { min-width: max-content; margin: 0; padding-block: 22px; color: #d8dce5; font: 13px/1.62 ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace; tab-size: 2; }
@@ -109,6 +117,10 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .xml-code li { min-height: 21px; padding-inline-end: 28px; border-inline-start: 1px solid transparent; white-space: pre; }
 .xml-code li::marker { color: #5f6672; font-size: 11px; }
 .xml-code li:hover { border-inline-start-color: #3b9568; background: #191d22; }
+.fold-toggle, .fold-spacer { width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; margin-inline-end: 0; vertical-align: -3px; }
+.fold-toggle { border: 0; border-radius: 4px; padding: 0; color: #828a97; background: transparent; cursor: pointer; font: 12px/1 ui-monospace, monospace; }
+.fold-toggle:hover { color: #8fffc1; background: #2b3038; }
+.fold-summary { margin-inline-start: 10px; border-radius: 5px; padding: 1px 6px; color: #87908d; background: #24282f; font: 10px/1.5 Inter, ui-sans-serif, system-ui, sans-serif; }
 .xml-raw { min-height: 100%; padding-inline: 30px; white-space: pre; unicode-bidi: plaintext; text-align: start; }
 .xml-punctuation { color: #7c8492; }
 .xml-tag { color: #68d9a0; }
@@ -209,11 +221,18 @@ button, a { -webkit-tap-highlight-color: transparent; }
 :root[data-theme="light"] .xml-modes { background: #edf1ef; }
 :root[data-theme="light"] .xml-modes button { color: #65726b; }
 :root[data-theme="light"] .xml-modes button.active { color: #1f2b24; background: white; box-shadow: 0 1px 4px rgba(25,45,34,.12); }
+:root[data-theme="light"] .copy-text-button { color: #59665f; border-color: #d1d9d4; background: #f4f7f5; }
+:root[data-theme="light"] .copy-text-button:hover { color: #243029; border-color: #aebbb4; background: #e9efec; }
+:root[data-theme="light"] .copy-text-button.copied { color: #087443; border-color: #7fbd99; }
+:root[data-theme="light"] .copy-text-button.error { color: #b4232d; border-color: #d49a9e; }
 :root[data-theme="light"] .xml-code,
 :root[data-theme="light"] .xml-raw,
 :root[data-theme="light"] .xml-text { color: #26312b; }
 :root[data-theme="light"] .xml-code li::marker { color: #9aa49e; }
 :root[data-theme="light"] .xml-code li:hover { border-inline-start-color: #24935b; background: #eef4f0; }
+:root[data-theme="light"] .fold-toggle { color: #7b867f; }
+:root[data-theme="light"] .fold-toggle:hover { color: #087443; background: #e0e9e4; }
+:root[data-theme="light"] .fold-summary { color: #66726b; background: #e9efec; }
 :root[data-theme="light"] .xml-punctuation { color: #758078; }
 :root[data-theme="light"] .xml-tag { color: #087443; }
 :root[data-theme="light"] .xml-attribute { color: #176da3; }
@@ -248,6 +267,10 @@ button, a { -webkit-tap-highlight-color: transparent; }
   .theme-toggle { width: 38px; min-width: 38px; padding: 0; }
   .theme-toggle-label { display: none; }
   .theme-toggle.floating { top: 12px; right: 12px; }
+  .xml-toolbar { padding-inline: 10px; }
+  .xml-toolbar-actions { gap: 5px; }
+  .copy-text-button { width: 30px; padding: 0; justify-content: center; }
+  .copy-text-label { display: none; }
   .landing-card { padding: 30px 22px; }
   .url-row { flex-direction: column; }
   .url-row button { padding: 13px; }
